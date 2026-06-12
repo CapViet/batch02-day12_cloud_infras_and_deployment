@@ -13,8 +13,15 @@ def client():
         yield test_client
 
 
-def test_root(client):
+def test_root_serves_ui(client):
     resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Multi-Agent Legal Assistant" in resp.text
+
+
+def test_api_info(client):
+    resp = client.get("/api/info")
     assert resp.status_code == 200
     data = resp.json()
     assert data["app"] == main_module.settings.app_name
@@ -50,14 +57,26 @@ def test_ask_with_invalid_api_key_is_rejected(client):
 def test_ask_with_valid_api_key_succeeds(client):
     resp = client.post(
         "/ask",
-        json={"question": "What is Docker?"},
+        json={"question": "What is the statute of limitations for breach of contract?"},
         headers={"X-API-Key": API_KEY},
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["question"] == "What is Docker?"
-    assert data["model"] == main_module.settings.llm_model
+    assert data["question"] == "What is the statute of limitations for breach of contract?"
+    assert data["model"] == main_module.settings.google_model
     assert isinstance(data["answer"], str) and data["answer"]
+    assert "law" in data["agents_consulted"]
+
+
+def test_ask_routes_to_tax_and_compliance_specialists(client):
+    resp = client.post(
+        "/ask",
+        json={"question": "What are the SEC and IRS tax evasion penalties for offshore accounts?"},
+        headers={"X-API-Key": API_KEY},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data["agents_consulted"]) == {"law", "tax", "compliance"}
 
 
 def test_ask_rejects_empty_question(client):

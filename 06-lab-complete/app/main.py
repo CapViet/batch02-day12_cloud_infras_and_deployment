@@ -21,17 +21,17 @@ import json
 from datetime import datetime, timezone
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Security, Depends, Request, Response
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
 from app.config import settings
-
-# Mock LLM (thay bằng OpenAI/Anthropic khi có API key)
-from utils.mock_llm import ask as llm_ask
+from app.agents.orchestrator import run_legal_assistant
 
 # ─────────────────────────────────────────────────────────
 # Logging — JSON structured
@@ -170,18 +170,29 @@ class AskResponse(BaseModel):
     question: str
     answer: str
     model: str
+    agents_consulted: list[str]
     timestamp: str
 
 # ─────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────
 
-@app.get("/", tags=["Info"])
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/", include_in_schema=False)
 def root():
+    """Serve the chat UI."""
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/info", tags=["Info"])
+def api_info():
     return {
         "app": settings.app_name,
         "version": settings.app_version,
         "environment": settings.environment,
+        "description": "Multi-agent legal assistant (Law / Tax / Compliance specialists)",
         "endpoints": {
             "ask": "POST /ask (requires X-API-Key)",
             "health": "GET /health",
@@ -197,7 +208,11 @@ async def ask_agent(
     _key: str = Depends(verify_api_key),
 ):
     """
-    Send a question to the AI agent.
+    Send a legal question to the multi-agent assistant.
+
+    Routes the question to the Law agent, and — depending on keyword
+    detection — the Tax and/or Compliance specialist agents in parallel,
+    then synthesises a combined answer.
 
     **Authentication:** Include header `X-API-Key: <your-key>`
     """
@@ -214,7 +229,8 @@ async def ask_agent(
         "client": str(request.client.host) if request.client else "unknown",
     }))
 
-    answer = llm_ask(body.question)
+    result = await run_legal_assistant(body.question)
+    answer = result["answer"]
 
     output_tokens = len(answer.split()) * 2
     check_and_record_cost(0, output_tokens)
@@ -222,7 +238,8 @@ async def ask_agent(
     return AskResponse(
         question=body.question,
         answer=answer,
-        model=settings.llm_model,
+        model=settings.google_model,
+        agents_consulted=result["agents_consulted"],
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -231,7 +248,7 @@ async def ask_agent(
 def health():
     """Liveness probe. Platform restarts container if this fails."""
     status = "ok"
-    checks = {"llm": "mock" if not settings.openai_api_key else "openai"}
+    checks = {"llm": "gemini" if settings.google_api_key else "mock"}
     return {
         "status": status,
         "version": settings.app_version,

@@ -27,7 +27,6 @@ COPY --from=builder /root/.local /app/.local
 
 # Copy application
 COPY 06-lab-complete/app/ ./app/
-COPY utils/ ./utils/
 
 RUN chown -R agent:agent /app
 

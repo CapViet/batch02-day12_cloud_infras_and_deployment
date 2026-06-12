@@ -1,4 +1,15 @@
-# Lab 12 — Complete Production Agent
+# Lab 12 — Multi-Agent Legal Assistant (Productionized)
+
+Productionized version of the Day 09 multi-agent system (`law_agent` +
+`tax_agent` + `compliance_agent`) — re-implemented as a single stateless
+FastAPI service applying every Day 12 productionization step.
+
+`POST /ask` runs the Law agent, and — based on keyword routing — the Tax
+and/or Compliance specialist agents **in parallel** (`asyncio.gather`), then
+synthesises a combined answer. See `app/agents/orchestrator.py`.
+
+Without `GOOGLE_API_KEY` set, all agents run in **mock mode** (deterministic
+canned responses) so the service is fully testable/demo-able with no LLM key.
 
 Kết hợp TẤT CẢ những gì đã học trong 1 project hoàn chỉnh.
 
@@ -24,11 +35,15 @@ Kết hợp TẤT CẢ những gì đã học trong 1 project hoàn chỉnh.
 ```
 06-lab-complete/
 ├── app/
-│   ├── main.py         # Entry point — kết hợp tất cả
-│   ├── config.py       # 12-factor config
-│   ├── auth.py         # API Key + JWT
-│   ├── rate_limiter.py # Rate limiting
-│   └── cost_guard.py   # Budget protection
+│   ├── main.py         # Entry point — auth, rate limit, cost guard, health/ready
+│   ├── config.py       # 12-factor config (env vars)
+│   ├── static/
+│   │   └── index.html  # Chat UI (served at GET /)
+│   └── agents/
+│       ├── orchestrator.py   # Multi-agent routing + parallel dispatch
+│       ├── prompts.py        # Law / Tax / Compliance system prompts
+│       ├── llm_client.py     # Gemini client (OpenAI-compatible)
+│       └── mock_responses.py # Mock-mode fallback answers
 ├── Dockerfile          # Multi-stage, production-ready
 ├── docker-compose.yml  # Full stack
 ├── railway.toml        # Deploy Railway
@@ -57,7 +72,7 @@ API_KEY=$(grep AGENT_API_KEY .env | cut -d= -f2)
 curl -H "X-API-Key: $API_KEY" \
      -X POST http://localhost/ask \
      -H "Content-Type: application/json" \
-     -d '{"question": "What is deployment?"}'
+     -d '{"question": "What are the tax evasion penalties for offshore accounts?"}'
 ```
 
 ---
@@ -71,7 +86,7 @@ npm i -g @railway/cli
 # Login và deploy
 railway login
 railway init
-railway variables set OPENAI_API_KEY=sk-...
+railway variables set GOOGLE_API_KEY=your-gemini-key   # optional — omit for mock mode
 railway variables set AGENT_API_KEY=your-secret-key
 railway up
 
