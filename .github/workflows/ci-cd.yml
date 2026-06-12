@@ -1,0 +1,88 @@
+name: CI/CD - Production Agent (06-lab-complete)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "06-lab-complete/**"
+      - "utils/**"
+      - ".github/workflows/ci-cd.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "06-lab-complete/**"
+      - "utils/**"
+      - ".github/workflows/ci-cd.yml"
+
+jobs:
+  ci:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: 06-lab-complete/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r 06-lab-complete/requirements-dev.txt
+
+      - name: Lint with ruff
+        run: ruff check 06-lab-complete/app 06-lab-complete/tests
+
+      - name: Run tests with coverage
+        working-directory: 06-lab-complete
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/06-lab-complete
+        run: |
+          pytest tests -v \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=70
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: 06-lab-complete/coverage.xml
+
+  deploy:
+    name: Deploy to Render / Railway
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via Render deploy hook
+        if: ${{ env.RENDER_DEPLOY_HOOK_URL != '' }}
+        run: |
+          echo "Triggering Render deploy..."
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL"
+
+      - name: Deploy via Railway CLI
+        if: ${{ env.RENDER_DEPLOY_HOOK_URL == '' && env.RAILWAY_TOKEN != '' }}
+        run: |
+          npm i -g @railway/cli
+          railway up --service "${{ vars.RAILWAY_SERVICE || '' }}" --detach \
+            --path-as-root 06-lab-complete
+
+      - name: No deploy target configured
+        if: ${{ env.RENDER_DEPLOY_HOOK_URL == '' && env.RAILWAY_TOKEN == '' }}
+        run: |
+          echo "::warning::No RENDER_DEPLOY_HOOK_URL or RAILWAY_TOKEN secret configured. Skipping deploy."

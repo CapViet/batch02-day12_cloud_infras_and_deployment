@@ -89,3 +89,37 @@ Request
 1. Khi nào nên dùng API Key vs JWT vs OAuth2?
 2. Rate limit nên đặt bao nhiêu request/phút cho một AI agent?
 3. Nếu API key bị lộ, bạn phát hiện và xử lý như thế nào?
+
+---
+
+## Trả lời
+
+**1. Khi nào dùng API Key vs JWT vs OAuth2**
+
+- **API Key**: đơn giản nhất, phù hợp **service-to-service** (machine-to-machine) hoặc khi cấp quyền truy cập cho 1 đối tác/khách hàng cụ thể (mỗi key = 1 client). Không chứa thông tin về user, không có expiry tự nhiên — phù hợp khi số lượng client ít và bạn kiểm soát việc cấp/rotate key thủ công.
+- **JWT**: phù hợp khi cần **authentication có thông tin user** (claims: user_id, role, expiry) trong một hệ thống có login flow (username/password → token). Stateless — server verify token bằng signature mà không cần query DB mỗi request, có thời hạn rõ ràng (`exp`), dễ kèm thêm thông tin phân quyền (scope/role).
+- **OAuth2**: phù hợp khi cần **ủy quyền (authorization) cho bên thứ ba** truy cập tài nguyên thay mặt user (ví dụ "Login with Google/GitHub"), hoặc hệ thống multi-tenant/SaaS cần nhiều scope khác nhau, refresh token, và tách biệt rõ "ai đang đăng nhập" vs "app nào được phép làm gì".
+
+Quy tắc chung: API Key cho nội bộ/đối tác cố định, JWT cho user login trong app của chính bạn, OAuth2 khi tích hợp identity provider bên ngoài hoặc phân quyền phức tạp.
+
+**2. Rate limit hợp lý cho AI agent**
+
+Không có số tuyệt đối — phụ thuộc cost của LLM call và mục đích sử dụng, nhưng tham khảo:
+
+- **Demo/học tập, free tier**: ~10–20 request/phút/user — đủ cho hội thoại bình thường, ngăn spam/abuse cơ bản (giống `RATE_LIMIT_PER_MINUTE=20` trong lab).
+- **Production, user trả phí**: có thể nâng lên 60–100 req/phút, hoặc tier hóa theo plan (free/pro/enterprise).
+- Nên kết hợp **2 lớp**: rate limit theo request/phút (chống spam, DoS) **+** cost guard theo token/ngày hoặc tháng (chống "burn tiền" dù request nhỏ nhưng câu hỏi/câu trả lời rất dài).
+
+**3. Nếu API key bị lộ — phát hiện và xử lý**
+
+**Phát hiện:**
+- Theo dõi `/metrics` hoặc dashboard: số request, chi phí (`daily_cost_usd`) tăng đột biến bất thường, hoặc IP/client lạ gọi liên tục.
+- Log structured (JSON) ghi lại client IP, timestamp — dễ phát hiện pattern lạ (request dồn dập từ 1 IP không quen).
+- GitHub secret scanning / push protection nếu key bị commit nhầm vào repo.
+
+**Xử lý:**
+1. **Revoke key cũ ngay** (set lại `AGENT_API_KEY` mới trong env/secret manager → key cũ ngừng hoạt động lập tức nhờ comparing trực tiếp với `settings.agent_api_key`).
+2. **Generate & phân phối key mới** cho client hợp lệ qua kênh an toàn.
+3. Nếu key từng bị commit vào git: xóa khỏi history (BFG/`git filter-repo`), không chỉ revert commit.
+4. Review log/metrics để đánh giá thiệt hại (bao nhiêu request/cost phát sinh từ key bị lộ).
+5. Bổ sung biện pháp phòng ngừa: secret scanning trong CI, không log full API key (chỉ log `key[:8]` như trong `06-lab-complete`), rotate key định kỳ.

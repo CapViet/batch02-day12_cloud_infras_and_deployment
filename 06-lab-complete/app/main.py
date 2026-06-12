@@ -14,7 +14,6 @@ Checklist:
   ✅ CORS
   ✅ Error handling
 """
-import os
 import time
 import signal
 import logging
@@ -156,7 +155,7 @@ async def request_middleware(request: Request, call_next):
             "ms": duration,
         }))
         return response
-    except Exception as e:
+    except Exception:
         _error_count += 1
         raise
 

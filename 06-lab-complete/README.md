@@ -98,3 +98,38 @@ python check_production_ready.py
 ```
 
 Script này kiểm tra tất cả items trong checklist và báo cáo những gì còn thiếu.
+
+---
+
+## CI/CD Pipeline (Bonus)
+
+Workflow: [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml)
+
+**CI job** (chạy trên mọi push/PR vào `main` khi có thay đổi trong `06-lab-complete/` hoặc `utils/`):
+1. Cài dependencies (`requirements-dev.txt`)
+2. Lint code với `ruff check app tests`
+3. Chạy unit tests + coverage: `pytest --cov=app --cov-fail-under=70`
+4. Upload coverage report (`coverage.xml`) làm artifact
+
+**CD job** (chỉ chạy khi push vào `main` và CI pass):
+- Deploy lên **Render** qua deploy hook (`RENDER_DEPLOY_HOOK_URL` secret), hoặc
+- Deploy lên **Railway** qua Railway CLI (`RAILWAY_TOKEN` secret)
+
+### Setup secrets
+
+Trong GitHub repo → **Settings → Secrets and variables → Actions**, thêm 1 trong 2:
+
+| Secret | Platform | Cách lấy |
+|---|---|---|
+| `RENDER_DEPLOY_HOOK_URL` | Render | Dashboard service → Settings → Deploy Hook |
+| `RAILWAY_TOKEN` | Railway | `railway login` → Account Settings → Tokens |
+
+Nếu không có secret nào, job `deploy` chạy nhưng sẽ chỉ in warning và skip.
+
+### Run tests locally
+
+```bash
+pip install -r requirements-dev.txt
+ruff check app tests
+PYTHONPATH=..:. pytest tests -v --cov=app --cov-report=term-missing
+```
